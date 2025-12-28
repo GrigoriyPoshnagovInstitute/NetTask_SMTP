@@ -5,25 +5,55 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-void checkResponse(SOCKET sock, const std::string& expectedCode) {
-    char buffer[4096];
-    memset(buffer, 0, sizeof(buffer));
-    int bytesReceived = recv(sock, buffer, sizeof(buffer) - 1, 0);
+std::string g_responseBuffer;
 
-    if (bytesReceived > 0) {
-        std::cout << "Server: " << buffer;
-        std::string response(buffer);
-        if (response.substr(0, 3) != expectedCode) {
-            std::cerr << "Error: Expected code " << expectedCode << " but got " << response.substr(0, 3) << std::endl;
+std::string receiveLine(SOCKET sock) {
+    size_t pos;
+    while ((pos = g_responseBuffer.find("\r\n")) == std::string::npos) {
+        char temp[4096];
+        int bytesReceived = recv(sock, temp, sizeof(temp) - 1, 0);
+        if (bytesReceived <= 0) {
+            return "";
         }
-    } else {
-        std::cerr << "Error receiving data" << std::endl;
+        temp[bytesReceived] = '\0';
+        g_responseBuffer += temp;
+    }
+
+    std::string line = g_responseBuffer.substr(0, pos + 2);
+    g_responseBuffer.erase(0, pos + 2);
+    return line;
+}
+
+void checkResponse(SOCKET sock, const std::string& expectedCode) {
+    std::string line;
+    std::string lastCode;
+    bool done = false;
+
+    while (!done) {
+        line = receiveLine(sock);
+        if (line.empty()) {
+            std::cerr << "Error: Connection closed or receive error" << std::endl;
+            return;
+        }
+
+        std::cout << "Server: " << line;
+
+        if (line.length() >= 3) {
+            lastCode = line.substr(0, 3);
+            if (line.length() < 4 || line[3] != '-') {
+                done = true;
+            }
+        }
+    }
+
+    if (lastCode != expectedCode) {
+        std::cerr << "Error: Expected code " << expectedCode << " but got " << lastCode << std::endl;
     }
 }
 
 void sendCommand(SOCKET sock, const std::string& command) {
     std::cout << "Client: " << command;
-    send(sock, command.c_str(), command.length(), 0);
+    send(sock, command.c_str(), (int)command.length(), 0);
 }
 
 int main() {
